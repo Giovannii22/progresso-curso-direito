@@ -236,7 +236,7 @@ window.dash = (() => {
   <section class="pc-grid2" id="graficos">
     <div class="pc-card">
       <h2 class="pc-h2">Carga horária por período</h2>
-      <p class="pc-note"><span class="pc-sw c0"></span>Concluída <span class="pc-sw c1" style="margin-left:.8rem"></span>Em curso</p>
+      <p class="pc-note"><span class="pc-sw c0"></span>Concluída <span class="pc-sw c1" style="margin-left:.8rem"></span>Em curso · clique numa barra para destacar o período</p>
       <div class="pc-box pc-bars" data-source="por_periodo"></div>
     </div>
     <div class="pc-card">
@@ -350,6 +350,9 @@ dash.calc('por_periodo', {
   const IDS = ['disciplinas', 'resumo', 'por_periodo'];
   const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; };
   let openSet = null;
+  let barsSel = null;
+  let guideRef = null;
+  let curSel = '';
 
   const mk = (p, field, fmt) => {
     const s = el('span');
@@ -377,6 +380,16 @@ dash.calc('por_periodo', {
       const v = r ? r[e.dataset.field] : undefined;
       e.textContent = v == null ? '—' : FMT[e.dataset.fmt](v);
     });
+  }
+
+  function applyHighlight(hov) {
+    const active = hov || curSel;
+    if (barsSel) barsSel.style('opacity', (d) => (!active || d.semestre === active ? 1 : 0.35));
+    if (guideRef) {
+      const gx = active ? guideRef.x(active) : undefined;
+      if (gx !== undefined) guideRef.line.style('display', null).attr('x1', gx).attr('x2', gx);
+      else guideRef.line.style('display', 'none');
+    }
   }
 
   function makeTip(box) { const t = el('div', 'pc-tip'); t.hidden = true; box.append(t); return t; }
@@ -414,6 +427,7 @@ dash.calc('por_periodo', {
     });
     const bars = g.selectAll('g.b').data(per).join('g').attr('class', 'b')
       .style('opacity', (d) => (!sel || d.semestre === sel ? 1 : 0.35));
+    barsSel = bars;
     bars.append('rect').attr('x', (d) => x(d.semestre)).attr('width', x.bandwidth())
       .attr('y', (d) => y(d.ch_cumprida)).attr('height', (d) => y(0) - y(d.ch_cumprida)).attr('rx', 3).style('fill', 'var(--pc-c0)');
     bars.append('rect').attr('x', (d) => x(d.semestre)).attr('width', x.bandwidth())
@@ -426,16 +440,18 @@ dash.calc('por_periodo', {
     const tip = makeTip(box);
     const pad = (x.step() * x.padding()) / 2;
     svg.append('g').selectAll('rect').data(per).join('rect')
-      .attr('x', (d) => x(d.semestre) - pad).attr('width', x.step()).attr('y', 0).attr('height', H).style('fill', 'transparent')
+      .attr('x', (d) => x(d.semestre) - pad).attr('width', x.step()).attr('y', 0).attr('height', H).style('fill', 'transparent').style('cursor', 'pointer')
+      .on('click', (event, d) => dash.setParams({ periodo: curSel === d.semestre ? null : d.semestre }))
       .on('pointermove', (event, d) => {
         const [px, py] = d3.pointer(event, box);
         const lines = [];
         if (d.ch_cumprida > 0) lines.push(['var(--pc-c0)', `Concluída: ${nf0.format(d.ch_cumprida)} h`]);
         if (d.ch_em_curso > 0) lines.push(['var(--pc-c1)', `Em curso: ${nf0.format(d.ch_em_curso)} h`]);
         lines.push([null, `${d.n_disciplinas} disciplinas · ${nf1.format(d.pct_curso)}% do curso`]);
+        applyHighlight(d.semestre);
         showTip(box, tip, `${d.periodo}º período · ${d.semestre}`, lines, px, py);
       })
-      .on('pointerleave', () => { tip.hidden = true; });
+      .on('pointerleave', () => { tip.hidden = true; applyHighlight(null); });
   }
 
   function drawLines(box, per, cur, sel) {
@@ -458,10 +474,9 @@ dash.calc('por_periodo', {
       .text((d) => (narrow ? d.semestre.slice(2) : d.semestre));
     const feitos = per.filter((d) => d.situacao === 'Concluído');
     const proj = per.filter((d) => d.periodo >= cur - 1);
-    if (sel) {
-      g.append('line').attr('x1', x(sel)).attr('x2', x(sel)).attr('y1', m.t).attr('y2', H - m.b)
-        .style('stroke', 'var(--cds-chart-reference)').attr('stroke-dasharray', '3 3');
-    }
+    const guide = g.append('line').attr('y1', m.t).attr('y2', H - m.b)
+      .style('stroke', 'var(--lg-gold)').style('display', 'none').attr('stroke-width', 1.5).attr('stroke-dasharray', '3 4');
+    guideRef = { line: guide, x };
     const grad = svg.append('defs').append('linearGradient').attr('id', 'pc-grad').attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1);
     [[0, 0.26], [0.25, 0.16], [0.5, 0.08], [0.75, 0.03], [1, 0]].forEach(([o, op]) =>
       grad.append('stop').attr('offset', o).style('stop-color', 'var(--pc-c0)').style('stop-opacity', op));
@@ -488,7 +503,8 @@ dash.calc('por_periodo', {
     const tip = makeTip(box);
     const step = per.length > 1 ? x(per[1].semestre) - x(per[0].semestre) : W;
     svg.append('g').selectAll('rect').data(per).join('rect')
-      .attr('x', (d) => x(d.semestre) - step / 2).attr('width', step).attr('y', 0).attr('height', H).style('fill', 'transparent')
+      .attr('x', (d) => x(d.semestre) - step / 2).attr('width', step).attr('y', 0).attr('height', H).style('fill', 'transparent').style('cursor', 'pointer')
+      .on('click', (event, d) => dash.setParams({ periodo: curSel === d.semestre ? null : d.semestre }))
       .on('pointermove', (event, d) => {
         const [px, py] = d3.pointer(event, box);
         const lines = [];
@@ -497,9 +513,10 @@ dash.calc('por_periodo', {
           lines.push(['var(--pc-c0)', `Concluído: ${nf1.format(d.pct_acum_cumprida)}%`]);
           lines.push(['var(--pc-c1)', `Com este semestre: ${nf1.format(d.pct_acum_previsto)}%`]);
         }
+        applyHighlight(d.semestre);
         showTip(box, tip, `${d.periodo}º período · ${d.semestre}`, lines, px, py);
       })
-      .on('pointerleave', () => { tip.hidden = true; });
+      .on('pointerleave', () => { tip.hidden = true; applyHighlight(null); });
   }
 
   function section(p, disc, sel) {
@@ -630,8 +647,10 @@ dash.calc('por_periodo', {
     list.replaceChildren(...per.filter((p) => !sel || p.semestre === sel).map((p) => section(p, disc, sel)));
     if (!sel && res.ch_compl > 0) list.append(complSection(disc, res));
 
+    curSel = sel;
     drawBars($('.pc-bars'), per, sel);
     drawLines($('.pc-lines'), per, res.periodo_atual, sel);
+    applyHighlight(null);
     fill();
   }
 
